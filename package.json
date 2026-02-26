@@ -1,0 +1,9 @@
+{
+  "name": "conductor-dashboard",
+  "version": "1.0.0",
+  "description": "Dashboard to monitor OpenSpec progress across Conductor workspaces",
+  "scripts": {
+    "start": "bun run server.ts",
+    "dev": "bun --watch run server.ts"
+  }
+}

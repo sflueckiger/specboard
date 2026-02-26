@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conductor Dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <h1>Conductor</h1>
+      <div class="path-config">
+        <span id="current-path" class="current-path">~/conductor/workspaces</span>
+        <button id="change-path">Change Path</button>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <select id="repo-select">
+        <option value="">Select Repository</option>
+      </select>
+    </nav>
+  </header>
+
+  <div class="container">
+    <aside class="sidebar">
+      <nav class="side-nav">
+        <a href="#/live" class="nav-item active" data-view="live">Live</a>
+        <a href="#/features" class="nav-item" data-view="features">Features</a>
+      </nav>
+    </aside>
+
+    <main class="main-content">
+      <div id="live-view" class="view">
+        <div class="swimlanes" id="swimlanes">
+          <p class="empty-state">Select a repository to view live progress</p>
+        </div>
+      </div>
+
+      <div id="features-view" class="view hidden">
+        <div id="features-list" class="features-list">
+          <p class="empty-state">Select a repository to view features</p>
+        </div>
+      </div>
+
+      <div id="feature-detail-view" class="view hidden">
+        <div class="breadcrumbs" id="breadcrumbs"></div>
+        <div class="feature-detail-header" id="feature-detail-header"></div>
+        <div class="artifact-tabs" id="artifact-tabs"></div>
+        <div class="artifact-content" id="artifact-content"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Directory Browser Modal -->
+  <div id="dir-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Select Directory</h2>
+        <button class="modal-close" id="modal-close">&times;</button>
+      </div>
+      <div class="modal-path">
+        <span id="modal-current-path">/</span>
+      </div>
+      <div class="modal-body" id="dir-list"></div>
+      <div class="modal-footer">
+        <button id="modal-cancel">Cancel</button>
+        <button id="modal-select" class="primary">Select This Directory</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Subtasks Sidebar -->
+  <aside id="subtasks-sidebar" class="subtasks-sidebar hidden">
+    <div class="sidebar-header">
+      <h3 id="sidebar-task-title"></h3>
+      <button id="sidebar-close" class="sidebar-close">&times;</button>
+    </div>
+    <div id="sidebar-subtasks" class="sidebar-content"></div>
+  </aside>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
