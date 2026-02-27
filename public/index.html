@@ -3,13 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Conductor Dashboard</title>
+  <title>Specboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="header">
     <div class="header-left">
-      <h1>Conductor</h1>
+      <div class="logo">
+        <i data-lucide="chart-spline" class="logo-icon"></i>
+        <span class="logo-text">Specboard</span>
+      </div>
       <div class="path-config">
         <span id="current-path" class="current-path">~/conductor/workspaces</span>
         <button id="change-path">Change Path</button>
@@ -81,5 +88,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="/app.js"></script>
+  <script>lucide.createIcons();</script>
 </body>
 </html>

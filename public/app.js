@@ -279,7 +279,15 @@ function openSubtasksSidebar(task) {
     <span class="sidebar-feature-name">${escapeHtml(task.featureName)}</span>
     <span class="sidebar-task-name">${task.id}. ${formatMarkdown(task.title)}</span>
   `;
-  sidebarSubtasks.innerHTML = task.subtasks.map(subtask => `
+
+  // Split subtasks into regular and manual QA
+  const regularSubtasks = task.subtasks.filter(s => !s.title.startsWith('Manual QA'));
+  const manualSubtasks = task.subtasks.filter(s => s.title.startsWith('Manual QA'));
+
+  let html = '';
+
+  // Render regular subtasks
+  html += regularSubtasks.map(subtask => `
     <div class="sidebar-subtask-item">
       <span class="subtask-checkbox ${subtask.completed ? 'completed' : 'pending'}">
         ${subtask.completed ? '✓' : '○'}
@@ -287,6 +295,64 @@ function openSubtasksSidebar(task) {
       <span class="subtask-title">${formatMarkdown(subtask.title)}</span>
     </div>
   `).join('');
+
+  // Render manual QA subtasks with header
+  if (manualSubtasks.length > 0) {
+    html += `<div class="sidebar-section-header">Manual Verification</div>`;
+    html += manualSubtasks.map(subtask => `
+      <div class="sidebar-subtask-item interactive"
+           data-subtask-id="${escapeHtml(subtask.id)}" data-feature-path="${escapeHtml(task.featurePath)}">
+        <span class="subtask-checkbox ${subtask.completed ? 'completed' : 'pending'}">
+          ${subtask.completed ? '✓' : '○'}
+        </span>
+        <span class="subtask-title">${formatMarkdown(subtask.title)}</span>
+      </div>
+    `).join('');
+  }
+
+  sidebarSubtasks.innerHTML = html;
+
+  // Add click handlers for interactive Manual QA subtasks
+  sidebarSubtasks.querySelectorAll('.sidebar-subtask-item.interactive').forEach(item => {
+    item.addEventListener('click', async () => {
+      const subtaskId = item.dataset.subtaskId;
+      const featurePath = item.dataset.featurePath;
+      const checkbox = item.querySelector('.subtask-checkbox');
+
+      // Optimistic UI update
+      const wasCompleted = checkbox.classList.contains('completed');
+      checkbox.classList.toggle('completed');
+      checkbox.classList.toggle('pending');
+      checkbox.textContent = wasCompleted ? '○' : '✓';
+
+      try {
+        console.log('Toggling subtask:', { featurePath, subtaskId });
+        const res = await fetch('/api/subtask/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ featurePath, subtaskId })
+        });
+
+        const data = await res.json();
+        console.log('Toggle response:', data);
+
+        if (!res.ok) {
+          // Revert on error
+          checkbox.classList.toggle('completed');
+          checkbox.classList.toggle('pending');
+          checkbox.textContent = wasCompleted ? '✓' : '○';
+          console.error('Failed to toggle subtask:', data.error);
+        }
+      } catch (err) {
+        // Revert on error
+        checkbox.classList.toggle('completed');
+        checkbox.classList.toggle('pending');
+        checkbox.textContent = wasCompleted ? '✓' : '○';
+        console.error('Failed to toggle subtask:', err);
+      }
+    });
+  });
+
   subtasksSidebar.classList.remove('hidden');
 }
 
@@ -612,7 +678,7 @@ function renderFeatureLane(feature) {
               <span class="column-count">${todoTasks.length}</span>
             </div>
             <div class="column-content">
-              ${todoTasks.map(task => renderTaskCard(task, feature.name)).join('')}
+              ${todoTasks.map(task => renderTaskCard(task, feature.name, feature.path)).join('')}
             </div>
           </div>
           <div class="kanban-column in-progress">
@@ -621,7 +687,7 @@ function renderFeatureLane(feature) {
               <span class="column-count">${inProgressTasks.length}</span>
             </div>
             <div class="column-content">
-              ${inProgressTasks.map(task => renderTaskCard(task, feature.name)).join('')}
+              ${inProgressTasks.map(task => renderTaskCard(task, feature.name, feature.path)).join('')}
             </div>
           </div>
           <div class="kanban-column done">
@@ -630,7 +696,7 @@ function renderFeatureLane(feature) {
               <span class="column-count">${doneTasks.length}</span>
             </div>
             <div class="column-content">
-              ${doneTasks.map(task => renderTaskCard(task, feature.name)).join('')}
+              ${doneTasks.map(task => renderTaskCard(task, feature.name, feature.path)).join('')}
             </div>
           </div>
         </div>
@@ -648,11 +714,11 @@ function formatMarkdown(text) {
 }
 
 // Render a task card
-function renderTaskCard(task, featureName) {
+function renderTaskCard(task, featureName, featurePath) {
   const completedSubtasks = task.subtasks.filter(s => s.completed).length;
   const totalSubtasks = task.subtasks.length;
   const progress = totalSubtasks > 0 ? Math.round((completedSubtasks / totalSubtasks) * 100) : 0;
-  const taskData = JSON.stringify({ ...task, featureName }).replace(/'/g, "&#39;");
+  const taskData = JSON.stringify({ ...task, featureName, featurePath }).replace(/'/g, "&#39;");
 
   return `
     <div class="task-card ${task.status} ${totalSubtasks > 0 ? 'clickable' : ''}" ${totalSubtasks > 0 ? `data-task='${taskData}'` : ''}>

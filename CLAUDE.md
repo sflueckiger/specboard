@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Conductor Dashboard is a web-based monitoring tool for tracking OpenSpec progress across Conductor workspaces. It displays worktrees, changes, and task completion status in a swimlane-style interface with real-time updates via Server-Sent Events.
+Specboard is a web-based monitoring tool for tracking OpenSpec progress across workspaces. It displays worktrees, changes, and task completion status in a swimlane-style interface with real-time updates via Server-Sent Events.
 
 ## Commands
 

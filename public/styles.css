@@ -63,10 +63,25 @@ body {
   gap: 2rem;
 }
 
-.header h1 {
+/* Logo */
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.logo-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+  stroke-width: 2.5;
+}
+
+.logo-text {
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--foreground);
+  letter-spacing: -0.02em;
 }
 
 .path-config {
@@ -702,6 +717,35 @@ code {
   font-size: 0.875rem;
   line-height: 1.5;
   color: var(--foreground);
+}
+
+.sidebar-subtask-item.interactive {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.sidebar-subtask-item.interactive:hover {
+  background: var(--muted);
+  border-color: var(--accent);
+}
+
+.sidebar-subtask-item.interactive .subtask-checkbox {
+  transition: transform 0.1s;
+}
+
+.sidebar-subtask-item.interactive:hover .subtask-checkbox {
+  transform: scale(1.1);
+}
+
+.sidebar-section-header {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+  padding: 1rem 0.75rem 0.5rem;
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--border);
 }
 
 /* Features List */

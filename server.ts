@@ -168,6 +168,67 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+// Toggle subtask completion in tasks.md
+async function toggleSubtask(
+  featurePath: string,
+  subtaskId: string
+): Promise<{ success: boolean; completed?: boolean; error?: string }> {
+  try {
+    const tasksPath = join(featurePath, "tasks.md");
+    console.log(`[toggle] Toggling subtask ${subtaskId} in ${tasksPath}`);
+
+    if (!(await fileExists(tasksPath))) {
+      console.log(`[toggle] File not found: ${tasksPath}`);
+      return { success: false, error: "tasks.md not found" };
+    }
+
+    const content = await readFile(tasksPath, "utf-8");
+    const lines = content.split("\n");
+    let found = false;
+    let newCompleted = false;
+
+    const updatedLines = lines.map((line) => {
+      // Match checkbox subtask with number: "- [x] 1.1 Title" or "- [ ] 1.1 Title"
+      const checkboxNumMatch = line.match(/^([-*]\s+\[)([ xX])(\]\s+)(\d+\.\d+)(\s+.+)/);
+      if (checkboxNumMatch && checkboxNumMatch[4] === subtaskId) {
+        found = true;
+        const currentlyCompleted = checkboxNumMatch[2].toLowerCase() === "x";
+        newCompleted = !currentlyCompleted;
+        console.log(`[toggle] Found subtask ${subtaskId}, changing ${currentlyCompleted} -> ${newCompleted}`);
+        return `${checkboxNumMatch[1]}${newCompleted ? "x" : " "}${checkboxNumMatch[3]}${checkboxNumMatch[4]}${checkboxNumMatch[5]}`;
+      }
+
+      // Match plain numbered subtask with checkbox: "1.1 [x] Title" or "1.1 [ ] Title"
+      const plainMatch = line.match(/^(\d+\.\d+)(\s+\[)([ xX])(\]\s+.+)/);
+      if (plainMatch && plainMatch[1] === subtaskId) {
+        found = true;
+        const currentlyCompleted = plainMatch[3].toLowerCase() === "x";
+        newCompleted = !currentlyCompleted;
+        console.log(`[toggle] Found subtask (plain format) ${subtaskId}, changing ${currentlyCompleted} -> ${newCompleted}`);
+        return `${plainMatch[1]}${plainMatch[2]}${newCompleted ? "x" : " "}${plainMatch[4]}`;
+      }
+
+      return line;
+    });
+
+    if (!found) {
+      console.log(`[toggle] Subtask ${subtaskId} not found in file`);
+      // Log first few lines to debug format
+      console.log(`[toggle] File starts with:`, lines.slice(0, 10).join('\n'));
+      return { success: false, error: "Subtask not found" };
+    }
+
+    const newContent = updatedLines.join("\n");
+    await Bun.write(tasksPath, newContent);
+    console.log(`[toggle] File written successfully`);
+
+    return { success: true, completed: newCompleted };
+  } catch (err) {
+    console.error(`[toggle] Error:`, err);
+    return { success: false, error: `File error: ${err}` };
+  }
+}
+
 // Get all repositories
 async function getRepositories(): Promise<Repository[]> {
   if (!(await dirExists(rootPath))) {
@@ -378,6 +439,21 @@ const server = Bun.serve({
       return Response.json(worktrees);
     }
 
+    // Toggle subtask completion
+    if (path === "/api/subtask/toggle" && req.method === "POST") {
+      const body = await req.json();
+      console.log(`[API] Toggle request:`, body);
+      if (!body.featurePath || !body.subtaskId) {
+        return Response.json({ error: "Missing featurePath or subtaskId" }, { status: 400 });
+      }
+      const result = await toggleSubtask(body.featurePath, body.subtaskId);
+      console.log(`[API] Toggle result:`, result);
+      if (!result.success) {
+        return Response.json({ error: result.error }, { status: 400 });
+      }
+      return Response.json({ success: true, completed: result.completed });
+    }
+
     // Open directory in native file explorer
     if (path === "/api/open" && req.method === "POST") {
       const body = await req.json();
@@ -510,6 +586,6 @@ const server = Bun.serve({
   },
 });
 
-console.log(`Conductor Dashboard running at http://localhost:${PORT}`);
+console.log(`Specboard running at http://localhost:${PORT}`);
 console.log(`Default root path: ${rootPath}`);
 startWatcher();
