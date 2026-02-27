@@ -1,20 +1,79 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  # Specboard - OpenSpec Progress Dashboard
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  ## Tech Stack
+  - **Runtime**: Bun (v1.0+) - TypeScript backend with no compilation step
+  - **Backend**: Single server.ts file using Bun's native HTTP server
+  - **Frontend**: Vanilla JavaScript SPA (no framework, no build step)
+  - **Styling**: Plain CSS with CSS custom properties (`:root` variables)
+  - **Icons**: Lucide (loaded via CDN)
+  - **Fonts**: Source Code Pro (Google Fonts)
+  - **Markdown**: marked.js for rendering
+
+  ## Architecture
+
+  ### Server (server.ts)
+  - Single file serving both REST API and static files from public/
+  - SSE endpoint (/api/events) for real-time file change notifications
+  - File system watcher (recursive) for .md file changes
+  - Cross-platform support (macOS, Windows, Linux) for open actions
+
+  ### Frontend (public/)
+  - index.html: Shell with nav, views, modal, sidebar containers
+  - app.js: All application logic (~1300 lines, well-sectioned)
+  - styles.css: All styles with CSS custom properties
+
+  ### Data Flow
+  1. Server scans {rootPath}/{repo}/{worktree}/openspec/changes/ directories
+  2. Parses tasks.md files for task/subtask structure
+  3. Broadcasts updates via SSE when .md files change
+  4. Client re-fetches data on SSE update events
+
+  ## Conventions
+
+  ### Code Style
+  - Section headers: `// ======...` separators with section names
+  - JSDoc comments for public functions
+  - camelCase for variables and functions
+  - TypeScript interfaces for data structures (server-side)
+
+  ### Frontend State
+  - URL query params for routing: ?view=, ?repo=, ?feature=, ?tab=
+  - LocalStorage keys prefixed with `specboard_`
+  - Global variables for app state (currentRepo, currentView, etc.)
+
+  ### UI Patterns
+  - Collapsible accordions for Design/Plan content
+  - Outline-style buttons with yellow accent for active states
+  - Lucide icons loaded dynamically, re-initialized after DOM updates
+  - Optimistic UI updates with revert on API error
+
+  ## Domain Concepts
+  - **Repository**: A git repo containing worktrees
+  - **Worktree**: A git worktree with openspec/changes/ directory
+  - **Feature/Change**: A directory under changes/ with artifacts
+  - **Artifacts**: proposal.md, design.md, spec.md (or specs/), tasks.md
+  - **Tasks**: Numbered headers (## 1. Title) in tasks.md
+  - **Subtasks**: Checkbox items (- [x] 1.1 Description)
+  - **Manual Subtasks**: Subtasks with "Manual QA" prefix or "(manual)" suffix
+
+  ## Key Files
+  - server.ts: ~400 lines, handles all backend logic
+  - public/app.js: ~1300 lines, handles all frontend logic
+  - public/styles.css: ~950 lines, all styling
+  - public/index.html: ~150 lines, DOM structure
+
+rules:
+  proposal:
+    - Keep proposals concise and focused
+    - Include clear impact assessment for existing functionality
+  design:
+    - Reference specific file paths when discussing implementation
+    - Consider both server.ts and public/app.js impacts
+    - Note any CSS changes needed in public/styles.css
+  tasks:
+    - Break tasks into small, testable units
+    - Group by file or feature area (server vs frontend)
+    - Include "Manual QA" subtasks for UI verification
