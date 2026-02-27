@@ -1,9 +1,11 @@
 {
   "name": "specboard",
   "version": "1.0.0",
-  "description": "Dashboard to monitor OpenSpec progress across workspaces",
+  "description": "Dashboard to monitor OpenSpec progress across (Conductor) workspaces",
+  "license": "MIT",
   "scripts": {
-    "start": "bun run server.ts",
-    "dev": "bun --watch run server.ts"
+    "start": "bun server.ts",
+    "dev": "bun --watch server.ts",
+    "open": "bun server.ts --open"
   }
 }

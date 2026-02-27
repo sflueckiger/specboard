@@ -640,6 +640,20 @@ const server = Bun.serve({
 // Startup
 // =============================================================================
 
-console.log(`Specboard running at http://localhost:${PORT}`);
-console.log(`Default root path: ${rootPath}`);
+const url = `http://localhost:${PORT}`;
+const shouldOpen = Bun.argv.includes("--open");
+
+console.log(`\nSpecboard running at: ${url}\n`);
+
+if (shouldOpen) {
+  const os = platform();
+  if (os === "darwin") {
+    Bun.spawn(["open", url]);
+  } else if (os === "win32") {
+    Bun.spawn(["cmd", "/c", "start", url]);
+  } else {
+    Bun.spawn(["xdg-open", url]);
+  }
+}
+
 startWatcher();
