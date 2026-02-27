@@ -1,16 +1,36 @@
+/**
+ * Specboard Server
+ *
+ * A Bun-based HTTP server that:
+ * - Serves the static frontend files
+ * - Provides REST API for reading OpenSpec data
+ * - Watches for file changes and broadcasts updates via SSE
+ * - Supports toggling Manual QA subtask completion
+ */
+
 import { watch, type FSWatcher } from "fs";
 import { readdir, readFile, stat, access } from "fs/promises";
 import { join } from "path";
 import { homedir, platform } from "os";
 
+// =============================================================================
+// Configuration
+// =============================================================================
+
 const PORT = 3456;
 
-// State
+// =============================================================================
+// Application State
+// =============================================================================
+
 let rootPath = join(homedir(), "conductor", "workspaces");
 let watcher: FSWatcher | null = null;
 let clients: Set<ReadableStreamDefaultController> = new Set();
 
-// Task status parsing
+// =============================================================================
+// Type Definitions
+// =============================================================================
+
 interface Subtask {
   id: string;
   title: string;
@@ -32,7 +52,7 @@ interface Feature {
   tasks: TaskCard[];
   hasProposal: boolean;
   hasDesign: boolean;
-  specs: string[]; // List of spec subdir names
+  specs: string[];
   hasPlan: boolean;
   isArchived: boolean;
 }
@@ -43,9 +63,16 @@ interface Repository {
   worktrees: string[];
 }
 
-// Parse tasks.md content - supports multiple formats:
-// Format 1: "## 1. Title" headers with "- [x] 1.1 Subtask" checkboxes
-// Format 2: "1. Title" with "1.1 Subtask" or indented checkboxes
+// =============================================================================
+// Task Parsing
+// =============================================================================
+
+/**
+ * Parse tasks.md content into structured task objects
+ * Supports multiple formats:
+ * - Format 1: "## 1. Title" headers with "- [x] 1.1 Subtask" checkboxes
+ * - Format 2: "1. Title" with "1.1 Subtask" or indented checkboxes
+ */
 function parseTasks(content: string): TaskCard[] {
   const tasks: TaskCard[] = [];
   const lines = content.split("\n");
@@ -55,17 +82,14 @@ function parseTasks(content: string): TaskCard[] {
     // Match header-style top-level task: "## 1. Title" or "# 1. Title"
     const headerMatch = line.match(/^#+\s*(\d+)\.\s+(.+)/);
     if (headerMatch) {
-      // Save previous task
       if (currentTask) {
         currentTask.status = getTaskStatus(currentTask.subtasks);
         tasks.push(currentTask);
       }
 
-      const id = headerMatch[1];
-      const title = headerMatch[2].trim();
       currentTask = {
-        id,
-        title,
+        id: headerMatch[1],
+        title: headerMatch[2].trim(),
         subtasks: [],
         status: "todo",
       };
@@ -75,45 +99,38 @@ function parseTasks(content: string): TaskCard[] {
     // Match plain top-level task: "1. Title" (not indented, no checkbox)
     const plainTopMatch = line.match(/^(\d+)\.\s+(?!\d)(?!\[)(.+)/);
     if (plainTopMatch && !line.startsWith(" ") && !line.startsWith("\t")) {
-      // Save previous task
       if (currentTask) {
         currentTask.status = getTaskStatus(currentTask.subtasks);
         tasks.push(currentTask);
       }
 
-      const id = plainTopMatch[1];
-      const title = plainTopMatch[2].trim();
       currentTask = {
-        id,
-        title,
+        id: plainTopMatch[1],
+        title: plainTopMatch[2].trim(),
         subtasks: [],
         status: "todo",
       };
       continue;
     }
 
-    // Match checkbox subtask with number: "- [x] 1.1 Title" or "- [ ] 1.1 Title"
+    // Match checkbox subtask with number: "- [x] 1.1 Title"
     const checkboxNumMatch = line.match(/^[-*]\s+\[([ xX])\]\s+(\d+)\.(\d+)\s+(.+)/);
     if (checkboxNumMatch && currentTask) {
-      const completed = checkboxNumMatch[1].toLowerCase() === "x";
-      const title = checkboxNumMatch[4].trim();
       currentTask.subtasks.push({
         id: `${checkboxNumMatch[2]}.${checkboxNumMatch[3]}`,
-        title,
-        completed,
+        title: checkboxNumMatch[4].trim(),
+        completed: checkboxNumMatch[1].toLowerCase() === "x",
       });
       continue;
     }
 
-    // Match plain numbered subtask: "1.1 Title" or "1.1 [ ] Title"
+    // Match plain numbered subtask: "1.1 Title" or "1.1 [x] Title"
     const subtaskMatch = line.match(/^(\d+)\.(\d+)\s+(?:\[([ xX])\]\s+)?(.+)/);
     if (subtaskMatch && currentTask) {
-      const completed = subtaskMatch[3]?.toLowerCase() === "x";
-      const title = subtaskMatch[4].trim();
       currentTask.subtasks.push({
         id: `${subtaskMatch[1]}.${subtaskMatch[2]}`,
-        title,
-        completed,
+        title: subtaskMatch[4].trim(),
+        completed: subtaskMatch[3]?.toLowerCase() === "x",
       });
       continue;
     }
@@ -121,17 +138,14 @@ function parseTasks(content: string): TaskCard[] {
     // Match indented checkbox subtasks (no number): "  - [ ] Title"
     const indentedCheckbox = line.match(/^\s+[-*]\s+\[([ xX])\]\s+(.+)/);
     if (indentedCheckbox && currentTask) {
-      const completed = indentedCheckbox[1].toLowerCase() === "x";
-      const title = indentedCheckbox[2].trim();
       currentTask.subtasks.push({
         id: `${currentTask.id}.${currentTask.subtasks.length + 1}`,
-        title,
-        completed,
+        title: indentedCheckbox[2].trim(),
+        completed: indentedCheckbox[1].toLowerCase() === "x",
       });
     }
   }
 
-  // Don't forget the last task
   if (currentTask) {
     currentTask.status = getTaskStatus(currentTask.subtasks);
     tasks.push(currentTask);
@@ -140,6 +154,7 @@ function parseTasks(content: string): TaskCard[] {
   return tasks;
 }
 
+/** Determine task status based on subtask completion */
 function getTaskStatus(subtasks: Subtask[]): "todo" | "in_progress" | "done" {
   if (subtasks.length === 0) return "todo";
   const completed = subtasks.filter((s) => s.completed).length;
@@ -148,7 +163,11 @@ function getTaskStatus(subtasks: Subtask[]): "todo" | "in_progress" | "done" {
   return "in_progress";
 }
 
-// Check if directory exists
+// =============================================================================
+// File Utilities
+// =============================================================================
+
+/** Check if directory exists */
 async function dirExists(path: string): Promise<boolean> {
   try {
     const s = await stat(path);
@@ -158,7 +177,7 @@ async function dirExists(path: string): Promise<boolean> {
   }
 }
 
-// Check if file exists
+/** Check if file exists */
 async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -168,17 +187,18 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-// Toggle subtask completion in tasks.md
+/**
+ * Toggle subtask completion status in tasks.md
+ * Supports checkbox format: "- [x] 1.1 Title"
+ */
 async function toggleSubtask(
   featurePath: string,
   subtaskId: string
 ): Promise<{ success: boolean; completed?: boolean; error?: string }> {
   try {
     const tasksPath = join(featurePath, "tasks.md");
-    console.log(`[toggle] Toggling subtask ${subtaskId} in ${tasksPath}`);
 
     if (!(await fileExists(tasksPath))) {
-      console.log(`[toggle] File not found: ${tasksPath}`);
       return { success: false, error: "tasks.md not found" };
     }
 
@@ -188,23 +208,21 @@ async function toggleSubtask(
     let newCompleted = false;
 
     const updatedLines = lines.map((line) => {
-      // Match checkbox subtask with number: "- [x] 1.1 Title" or "- [ ] 1.1 Title"
+      // Match checkbox subtask: "- [x] 1.1 Title"
       const checkboxNumMatch = line.match(/^([-*]\s+\[)([ xX])(\]\s+)(\d+\.\d+)(\s+.+)/);
       if (checkboxNumMatch && checkboxNumMatch[4] === subtaskId) {
         found = true;
         const currentlyCompleted = checkboxNumMatch[2].toLowerCase() === "x";
         newCompleted = !currentlyCompleted;
-        console.log(`[toggle] Found subtask ${subtaskId}, changing ${currentlyCompleted} -> ${newCompleted}`);
         return `${checkboxNumMatch[1]}${newCompleted ? "x" : " "}${checkboxNumMatch[3]}${checkboxNumMatch[4]}${checkboxNumMatch[5]}`;
       }
 
-      // Match plain numbered subtask with checkbox: "1.1 [x] Title" or "1.1 [ ] Title"
+      // Match plain numbered subtask: "1.1 [x] Title"
       const plainMatch = line.match(/^(\d+\.\d+)(\s+\[)([ xX])(\]\s+.+)/);
       if (plainMatch && plainMatch[1] === subtaskId) {
         found = true;
         const currentlyCompleted = plainMatch[3].toLowerCase() === "x";
         newCompleted = !currentlyCompleted;
-        console.log(`[toggle] Found subtask (plain format) ${subtaskId}, changing ${currentlyCompleted} -> ${newCompleted}`);
         return `${plainMatch[1]}${plainMatch[2]}${newCompleted ? "x" : " "}${plainMatch[4]}`;
       }
 
@@ -212,24 +230,21 @@ async function toggleSubtask(
     });
 
     if (!found) {
-      console.log(`[toggle] Subtask ${subtaskId} not found in file`);
-      // Log first few lines to debug format
-      console.log(`[toggle] File starts with:`, lines.slice(0, 10).join('\n'));
       return { success: false, error: "Subtask not found" };
     }
 
-    const newContent = updatedLines.join("\n");
-    await Bun.write(tasksPath, newContent);
-    console.log(`[toggle] File written successfully`);
-
+    await Bun.write(tasksPath, updatedLines.join("\n"));
     return { success: true, completed: newCompleted };
   } catch (err) {
-    console.error(`[toggle] Error:`, err);
     return { success: false, error: `File error: ${err}` };
   }
 }
 
-// Get all repositories
+// =============================================================================
+// Repository Scanning
+// =============================================================================
+
+/** Get all repositories from the root path */
 async function getRepositories(): Promise<Repository[]> {
   if (!(await dirExists(rootPath))) {
     return [];
@@ -257,7 +272,7 @@ async function getRepositories(): Promise<Repository[]> {
   return repos;
 }
 
-// Get all features across all worktrees for a repository
+/** Get all features across all worktrees for a repository */
 async function getFeatures(repoName: string): Promise<Feature[]> {
   const repoPath = join(rootPath, repoName);
   const features: Feature[] = [];
@@ -289,21 +304,12 @@ async function getFeatures(repoName: string): Promise<Feature[]> {
         const feature = await parseFeature(featurePath, entry.name, worktreeName, worktreePath, false);
         features.push(feature);
       } else if (entry.name === "archive") {
-        // Handle archived features
         const archivePath = join(changesPath, "archive");
-        const archiveEntries = await readdir(archivePath, {
-          withFileTypes: true,
-        });
+        const archiveEntries = await readdir(archivePath, { withFileTypes: true });
         for (const archiveEntry of archiveEntries) {
           if (archiveEntry.isDirectory()) {
             const featurePath = join(archivePath, archiveEntry.name);
-            const feature = await parseFeature(
-              featurePath,
-              archiveEntry.name,
-              worktreeName,
-              worktreePath,
-              true
-            );
+            const feature = await parseFeature(featurePath, archiveEntry.name, worktreeName, worktreePath, true);
             features.push(feature);
           }
         }
@@ -314,6 +320,7 @@ async function getFeatures(repoName: string): Promise<Feature[]> {
   return features;
 }
 
+/** Parse a feature directory into a Feature object */
 async function parseFeature(
   featurePath: string,
   name: string,
@@ -330,13 +337,13 @@ async function parseFeature(
     tasks = parseTasks(content);
   }
 
-  // Check for specs - either single spec.md or specs/ directory with subdirs
+  // Check for specs - either single spec.md or specs/ directory
   let specs: string[] = [];
   const singleSpecPath = join(featurePath, "spec.md");
   const specsDir = join(featurePath, "specs");
 
   if (await fileExists(singleSpecPath)) {
-    specs = ["_single"]; // Special marker for single spec.md
+    specs = ["_single"];
   } else if (await dirExists(specsDir)) {
     const entries = await readdir(specsDir, { withFileTypes: true });
     for (const entry of entries) {
@@ -364,12 +371,16 @@ async function parseFeature(
   };
 }
 
-// Get full data for a repository (returns features)
+/** Get full data for a repository */
 async function getRepositoryData(repoName: string): Promise<Feature[]> {
   return getFeatures(repoName);
 }
 
-// File watcher
+// =============================================================================
+// File Watcher (Real-time Updates)
+// =============================================================================
+
+/** Start watching the root path for file changes */
 async function startWatcher() {
   if (watcher) {
     watcher.close();
@@ -384,7 +395,6 @@ async function startWatcher() {
   try {
     watcher = watch(rootPath, { recursive: true }, (event, filename) => {
       if (filename && (filename.endsWith(".md") || event === "rename")) {
-        // Notify all SSE clients
         broadcastUpdate();
       }
     });
@@ -394,6 +404,7 @@ async function startWatcher() {
   }
 }
 
+/** Broadcast update event to all SSE clients */
 function broadcastUpdate() {
   const data = `data: ${JSON.stringify({ type: "update" })}\n\n`;
   for (const client of clients) {
@@ -405,18 +416,22 @@ function broadcastUpdate() {
   }
 }
 
-// HTTP Server
+// =============================================================================
+// HTTP Server & API Routes
+// =============================================================================
+
 const server = Bun.serve({
   port: PORT,
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
 
-    // API routes
+    // GET /api/config - Get current workspace root path
     if (path === "/api/config" && req.method === "GET") {
       return Response.json({ rootPath });
     }
 
+    // POST /api/config - Set workspace root path
     if (path === "/api/config" && req.method === "POST") {
       const body = await req.json();
       if (body.rootPath && typeof body.rootPath === "string") {
@@ -428,34 +443,34 @@ const server = Bun.serve({
       return Response.json({ error: "Invalid rootPath" }, { status: 400 });
     }
 
+    // GET /api/repositories - List all repositories
     if (path === "/api/repositories") {
       const repos = await getRepositories();
       return Response.json(repos);
     }
 
+    // GET /api/repositories/:name - Get features for a repository
     const repoMatch = path.match(/^\/api\/repositories\/([^/]+)$/);
     if (repoMatch) {
-      const worktrees = await getRepositoryData(repoMatch[1]);
-      return Response.json(worktrees);
+      const features = await getRepositoryData(repoMatch[1]);
+      return Response.json(features);
     }
 
-    // Toggle subtask completion
+    // POST /api/subtask/toggle - Toggle Manual QA subtask completion
     if (path === "/api/subtask/toggle" && req.method === "POST") {
       const body = await req.json();
-      console.log(`[API] Toggle request:`, body);
       if (!body.featurePath || !body.subtaskId) {
         return Response.json({ error: "Missing featurePath or subtaskId" }, { status: 400 });
       }
       const result = await toggleSubtask(body.featurePath, body.subtaskId);
-      console.log(`[API] Toggle result:`, result);
       if (!result.success) {
         return Response.json({ error: result.error }, { status: 400 });
       }
       return Response.json({ success: true, completed: result.completed });
     }
 
-    // Open directory in native file explorer
-    if (path === "/api/open" && req.method === "POST") {
+    // POST /api/open/finder - Open path in Finder/Explorer
+    if (path === "/api/open/finder" && req.method === "POST") {
       const body = await req.json();
       if (body.path && typeof body.path === "string") {
         try {
@@ -470,18 +485,53 @@ const server = Bun.serve({
           }
           Bun.spawn(cmd);
           return Response.json({ success: true });
-        } catch (err) {
+        } catch {
           return Response.json({ error: "Failed to open directory" }, { status: 500 });
         }
       }
       return Response.json({ error: "Invalid path" }, { status: 400 });
     }
 
-    // Fetch artifact content
+    // POST /api/open/vscode - Open path in VS Code
+    if (path === "/api/open/vscode" && req.method === "POST") {
+      const body = await req.json();
+      if (body.path && typeof body.path === "string") {
+        try {
+          Bun.spawn(["code", body.path]);
+          return Response.json({ success: true });
+        } catch {
+          return Response.json({ error: "Failed to open VS Code" }, { status: 500 });
+        }
+      }
+      return Response.json({ error: "Invalid path" }, { status: 400 });
+    }
+
+    // POST /api/open/terminal - Open path in Terminal
+    if (path === "/api/open/terminal" && req.method === "POST") {
+      const body = await req.json();
+      if (body.path && typeof body.path === "string") {
+        try {
+          const os = platform();
+          if (os === "darwin") {
+            Bun.spawn(["open", "-a", "Terminal", body.path]);
+          } else if (os === "win32") {
+            Bun.spawn(["cmd", "/c", "start", "cmd", "/k", `cd /d "${body.path}"`]);
+          } else {
+            Bun.spawn(["gnome-terminal", `--working-directory=${body.path}`]);
+          }
+          return Response.json({ success: true });
+        } catch {
+          return Response.json({ error: "Failed to open Terminal" }, { status: 500 });
+        }
+      }
+      return Response.json({ error: "Invalid path" }, { status: 400 });
+    }
+
+    // GET /api/artifact - Fetch artifact content (proposal, design, spec, plan)
     if (path === "/api/artifact" && req.method === "GET") {
       const featurePath = url.searchParams.get("path");
       const artifact = url.searchParams.get("artifact");
-      const specName = url.searchParams.get("spec"); // For specific spec in specs/ dir
+      const specName = url.searchParams.get("spec");
 
       if (!featurePath || !artifact) {
         return Response.json({ error: "Missing path or artifact" }, { status: 400 });
@@ -522,12 +572,12 @@ const server = Bun.serve({
         }
         const content = await readFile(artifactPath, "utf-8");
         return Response.json({ content });
-      } catch (err) {
+      } catch {
         return Response.json({ error: "Failed to read artifact" }, { status: 500 });
       }
     }
 
-    // Directory browser for path selection
+    // GET /api/browse - Browse directories for path selection
     if (path === "/api/browse") {
       const browseDir = url.searchParams.get("path") || "/";
       try {
@@ -541,12 +591,12 @@ const server = Bun.serve({
           .sort((a, b) => a.name.localeCompare(b.name));
         const parent = browseDir === "/" ? null : join(browseDir, "..");
         return Response.json({ current: browseDir, parent, directories: dirs });
-      } catch (err) {
+      } catch {
         return Response.json({ error: "Cannot read directory" }, { status: 500 });
       }
     }
 
-    // SSE endpoint for real-time updates
+    // GET /api/events - SSE endpoint for real-time updates
     if (path === "/api/events") {
       const stream = new ReadableStream({
         start(controller) {
@@ -585,6 +635,10 @@ const server = Bun.serve({
     return new Response("Not Found", { status: 404 });
   },
 });
+
+// =============================================================================
+// Startup
+// =============================================================================
 
 console.log(`Specboard running at http://localhost:${PORT}`);
 console.log(`Default root path: ${rootPath}`);

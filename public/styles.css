@@ -203,10 +203,16 @@ body {
 .lane-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 1rem 1.25rem;
   background: var(--card);
   border-bottom: 1px solid var(--border);
+}
+
+.lane-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
 }
 
 .lane-title-row {
@@ -218,6 +224,57 @@ body {
 .lane-title {
   font-weight: 600;
   font-size: 1rem;
+}
+
+.lane-worktree {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.worktree-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+
+.worktree-name {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+.worktree-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.action-btn:hover {
+  background: var(--muted);
+  color: var(--foreground);
+  border-color: var(--foreground);
+}
+
+.action-btn i,
+.action-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .open-folder-btn {
@@ -267,25 +324,27 @@ body {
   font-size: 0.6875rem;
   padding: 0.25rem 0.5rem;
   border-radius: var(--radius);
-  background: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
   color: var(--muted-foreground);
   text-decoration: none;
   transition: all 0.15s;
 }
 
 .badge-link.disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: default;
 }
 
 .badge-link.active {
-  background: var(--sidebar-primary);
-  color: white;
+  background: transparent;
+  border-color: var(--accent);
+  color: rgb(140 110 0);
   cursor: pointer;
 }
 
 .badge-link.active:hover {
-  opacity: 0.9;
+  background: rgb(255 250 220);
 }
 
 /* Kanban Board */
@@ -396,12 +455,12 @@ body {
 
 /* Inline code */
 code {
-  background: var(--secondary);
+  background: rgb(255 250 220);
   padding: 0.125rem 0.375rem;
   border-radius: var(--radius);
   font-family: var(--font-mono);
   font-size: 0.85em;
-  color: var(--foreground);
+  color: rgb(140 110 0);
 }
 
 .task-progress {
@@ -790,11 +849,6 @@ code {
   gap: 0.5rem;
 }
 
-.worktree-name {
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-}
-
 .feature-list-right {
   color: var(--muted-foreground);
 }
@@ -957,6 +1011,211 @@ code {
   display: block;
 }
 
+/* Design Accordion */
+.design-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.design-section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.design-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  background: var(--card);
+  border: none;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+
+.design-section-header:hover {
+  background: var(--muted);
+}
+
+.design-chevron {
+  color: var(--muted-foreground);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.design-section.expanded .design-chevron {
+  transform: rotate(90deg);
+}
+
+.design-section-title {
+  flex: 1;
+}
+
+.design-section-content {
+  display: none;
+  padding: 0 1.25rem 1.25rem;
+  background: var(--card);
+}
+
+.design-section.expanded .design-section-content {
+  display: block;
+}
+
+/* Plan Task Cards */
+.plan-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.plan-task-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.plan-task-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  background: var(--card);
+  border: none;
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+
+.plan-task-header:hover {
+  background: var(--muted);
+}
+
+.plan-chevron {
+  color: var(--muted-foreground);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.plan-task-card.expanded .plan-chevron {
+  transform: rotate(90deg);
+}
+
+.plan-task-id {
+  font-weight: 600;
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+
+.plan-task-title {
+  flex: 1;
+  font-weight: 500;
+}
+
+.plan-task-progress {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.plan-task-progress.todo {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.plan-task-progress.in-progress {
+  background: rgb(255 240 200);
+  color: rgb(140 120 20);
+}
+
+.plan-task-progress.done {
+  background: rgb(220 252 231);
+  color: rgb(22 101 52);
+}
+
+.plan-task-content {
+  display: none;
+  padding: 0 1.25rem 1.25rem;
+  background: var(--card);
+}
+
+.plan-task-card.expanded .plan-task-content {
+  display: block;
+}
+
+.plan-subtasks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.plan-subtask-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.plan-subtask-checkbox {
+  flex-shrink: 0;
+  font-size: 0.875rem;
+  margin-top: 1px;
+}
+
+.plan-subtask-checkbox.completed {
+  color: var(--success);
+}
+
+.plan-subtask-checkbox.pending {
+  color: rgb(200 160 60);
+}
+
+.plan-subtask-title {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--foreground);
+}
+
+.plan-subtask-item.interactive {
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.plan-subtask-item.interactive:hover {
+  background: var(--secondary);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.plan-manual-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.plan-manual-header {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+  margin-bottom: 0.75rem;
+}
+
 /* Markdown Content */
 .markdown-content {
   font-size: 0.9375rem;
@@ -1001,12 +1260,12 @@ code {
 }
 
 .markdown-content code {
-  background: var(--secondary);
+  background: rgb(255 250 220);
   padding: 0.125rem 0.375rem;
   border-radius: var(--radius);
   font-family: var(--font-mono);
   font-size: 0.85em;
-  color: var(--foreground);
+  color: rgb(140 110 0);
 }
 
 .markdown-content pre {

@@ -1,12 +1,26 @@
-// State
-let currentRepo = null;
-let currentView = 'live';
-let currentFeature = null;
-let featuresData = [];
-let eventSource = null;
-let browsingPath = '/';
+/**
+ * Specboard - OpenSpec Progress Dashboard
+ *
+ * A single-page application for monitoring OpenSpec feature progress.
+ * Features real-time updates via SSE, kanban-style task tracking,
+ * and interactive Manual QA subtask toggling.
+ */
 
+// =============================================================================
+// Application State
+// =============================================================================
+
+let currentRepo = null;        // Currently selected repository name
+let currentView = 'live';      // Current view: 'live' or 'features'
+let currentFeature = null;     // Currently viewed feature (in detail view)
+let featuresData = [];         // Cached features data for current repo
+let eventSource = null;        // SSE connection for real-time updates
+let browsingPath = '/';        // Current path in directory browser modal
+
+// =============================================================================
 // DOM Elements
+// =============================================================================
+
 const currentPathEl = document.getElementById('current-path');
 const changePathBtn = document.getElementById('change-path');
 const repoSelect = document.getElementById('repo-select');
@@ -39,21 +53,81 @@ const sidebarClose = document.getElementById('sidebar-close');
 
 // LocalStorage keys
 const STORAGE_KEYS = {
-  rootPath: 'conductor_rootPath',
-  repo: 'conductor_repo'
+  rootPath: 'specboard_rootPath',
+  repo: 'specboard_repo'
 };
 
-// Initialize
+// =============================================================================
+// URL Routing
+// =============================================================================
+
+/** Get current URL query parameters */
+function getUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    view: params.get('view') || 'live',
+    repo: params.get('repo'),
+    feature: params.get('feature'),
+    tab: params.get('tab')
+  };
+}
+
+function updateUrlParams(updates) {
+  const params = new URLSearchParams(window.location.search);
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null || value === undefined) {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+  }
+
+  const newUrl = params.toString()
+    ? `${window.location.pathname}?${params.toString()}`
+    : window.location.pathname;
+
+  window.history.replaceState({}, '', newUrl);
+}
+
+// =============================================================================
+// Initialization
+// =============================================================================
+
+/** Initialize the application */
 async function init() {
   await loadConfig();
   await loadRepositories();
 
-  // Restore last selected repo
-  const savedRepo = localStorage.getItem(STORAGE_KEYS.repo);
-  if (savedRepo && repoSelect.querySelector(`option[value="${savedRepo}"]`)) {
-    currentRepo = savedRepo;
-    repoSelect.value = savedRepo;
-    loadFeatures(currentRepo);
+  // Get URL params
+  const urlParams = getUrlParams();
+
+  // Restore repo from URL or localStorage
+  const repoToLoad = urlParams.repo || localStorage.getItem(STORAGE_KEYS.repo);
+  if (repoToLoad && repoSelect.querySelector(`option[value="${repoToLoad}"]`)) {
+    currentRepo = repoToLoad;
+    repoSelect.value = repoToLoad;
+    await loadFeatures(currentRepo);
+
+    // Restore view and feature from URL
+    if (urlParams.view === 'features' && urlParams.feature) {
+      // Find the feature by name
+      const feature = featuresData.find(f => f.name === urlParams.feature);
+      if (feature) {
+        currentView = 'features';
+        navItems.forEach(item => {
+          item.classList.toggle('active', item.dataset.view === 'features');
+        });
+        liveView.classList.add('hidden');
+        openFeatureDetail(feature, urlParams.tab);
+      } else {
+        switchView(urlParams.view);
+      }
+    } else {
+      switchView(urlParams.view);
+    }
+  } else {
+    switchView('live');
   }
 
   setupEventSource();
@@ -90,7 +164,11 @@ async function loadConfig() {
   }
 }
 
-// Directory browser
+// =============================================================================
+// Directory Browser Modal
+// =============================================================================
+
+/** Browse directory contents for path selection */
 async function browseDirectory(path) {
   try {
     const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
@@ -179,7 +257,11 @@ async function selectDirectory() {
   }
 }
 
-// Load repositories
+// =============================================================================
+// Data Loading
+// =============================================================================
+
+/** Load available repositories from API */
 async function loadRepositories() {
   try {
     const res = await fetch('/api/repositories');
@@ -225,7 +307,11 @@ async function loadFeatures(repoName) {
   }
 }
 
-// Render features as swimlanes with kanban columns
+// =============================================================================
+// Live View Rendering
+// =============================================================================
+
+/** Render features as swimlanes with kanban columns */
 function renderFeatures(features) {
   // Filter out archived features
   const activeFeatures = features.filter(f => !f.isArchived);
@@ -237,22 +323,28 @@ function renderFeatures(features) {
 
   swimlanes.innerHTML = activeFeatures.map(feature => renderFeatureLane(feature)).join('');
 
-  // Add click handlers for open folder buttons
-  swimlanes.querySelectorAll('.open-folder-btn').forEach(btn => {
+  // Add click handlers for action buttons (Finder, VS Code, Terminal)
+  swimlanes.querySelectorAll('.action-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      const action = btn.dataset.action;
       const path = btn.dataset.path;
       try {
-        await fetch('/api/open', {
+        await fetch(`/api/open/${action}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path })
         });
       } catch (err) {
-        console.error('Failed to open folder:', err);
+        console.error(`Failed to open ${action}:`, err);
       }
     });
   });
+
+  // Re-initialize Lucide icons for dynamically added content
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
 
   // Add click handlers for task cards
   swimlanes.querySelectorAll('.task-card.clickable').forEach(card => {
@@ -326,29 +418,23 @@ function openSubtasksSidebar(task) {
       checkbox.textContent = wasCompleted ? '○' : '✓';
 
       try {
-        console.log('Toggling subtask:', { featurePath, subtaskId });
         const res = await fetch('/api/subtask/toggle', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ featurePath, subtaskId })
         });
 
-        const data = await res.json();
-        console.log('Toggle response:', data);
-
         if (!res.ok) {
           // Revert on error
           checkbox.classList.toggle('completed');
           checkbox.classList.toggle('pending');
           checkbox.textContent = wasCompleted ? '✓' : '○';
-          console.error('Failed to toggle subtask:', data.error);
         }
       } catch (err) {
         // Revert on error
         checkbox.classList.toggle('completed');
         checkbox.classList.toggle('pending');
         checkbox.textContent = wasCompleted ? '✓' : '○';
-        console.error('Failed to toggle subtask:', err);
       }
     });
   });
@@ -360,10 +446,17 @@ function closeSubtasksSidebar() {
   subtasksSidebar.classList.add('hidden');
 }
 
-// View switching
+// =============================================================================
+// View Navigation
+// =============================================================================
+
+/** Switch between Live and Features views */
 function switchView(view) {
   currentView = view;
   currentFeature = null;
+
+  // Update URL params
+  updateUrlParams({ view, feature: null, tab: null });
 
   // Update nav
   navItems.forEach(item => {
@@ -385,7 +478,11 @@ function switchView(view) {
   }
 }
 
-// Render features list (card-based)
+// =============================================================================
+// Features List View
+// =============================================================================
+
+/** Render features as clickable cards */
 function renderFeaturesList() {
   const activeFeatures = featuresData.filter(f => !f.isArchived);
 
@@ -399,12 +496,19 @@ function renderFeaturesList() {
       <div class="feature-list-left">
         <span class="feature-list-name">${escapeHtml(feature.name)}</span>
         <div class="feature-list-worktree">
-          <button class="open-folder-btn" data-path="${escapeHtml(feature.worktreePath)}" title="Open worktree folder">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-            </svg>
-          </button>
+          <i data-lucide="folder-git-2" class="worktree-icon"></i>
           <span class="worktree-name">${escapeHtml(feature.worktree)}</span>
+          <div class="worktree-actions">
+            <button class="action-btn" data-action="finder" data-path="${escapeHtml(feature.worktreePath)}" title="Open in Finder">
+              <i data-lucide="folder-open"></i>
+            </button>
+            <button class="action-btn" data-action="vscode" data-path="${escapeHtml(feature.worktreePath)}" title="Open in VS Code">
+              <i data-lucide="code"></i>
+            </button>
+            <button class="action-btn" data-action="terminal" data-path="${escapeHtml(feature.worktreePath)}" title="Open in Terminal">
+              <i data-lucide="terminal"></i>
+            </button>
+          </div>
         </div>
       </div>
       <div class="feature-list-right">
@@ -425,21 +529,27 @@ function renderFeaturesList() {
     });
   });
 
-  featuresList.querySelectorAll('.open-folder-btn').forEach(btn => {
+  featuresList.querySelectorAll('.action-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      const action = btn.dataset.action;
       const path = btn.dataset.path;
       try {
-        await fetch('/api/open', {
+        await fetch(`/api/open/${action}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path })
         });
       } catch (err) {
-        console.error('Failed to open folder:', err);
+        console.error(`Failed to open ${action}:`, err);
       }
     });
   });
+
+  // Re-initialize Lucide icons for dynamically added content
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
 }
 
 // Open feature detail view with specific tab
@@ -475,6 +585,7 @@ function openFeatureDetail(feature, initialTab = null) {
     featureDetailView.classList.add('hidden');
     featuresView.classList.remove('hidden');
     currentFeature = null;
+    updateUrlParams({ feature: null, tab: null });
   });
 
   // Render header
@@ -506,8 +617,15 @@ function openFeatureDetail(feature, initialTab = null) {
       artifactTabs.querySelectorAll('.artifact-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
 
+      // Update URL with selected tab
+      updateUrlParams({ tab: tab.dataset.artifact });
+
       if (tab.dataset.artifact === 'specs') {
         renderSpecsTab(feature);
+      } else if (tab.dataset.artifact === 'design') {
+        loadDesignArtifact(feature.path);
+      } else if (tab.dataset.artifact === 'plan') {
+        loadPlanArtifact(feature.path);
       } else {
         loadArtifact(feature.path, tab.dataset.artifact);
       }
@@ -520,10 +638,17 @@ function openFeatureDetail(feature, initialTab = null) {
     tabToShow = tabs.find(t => t.enabled);
   }
 
+  // Update URL with feature and tab
+  updateUrlParams({ view: 'features', feature: feature.name, tab: tabToShow?.id || null });
+
   if (tabToShow) {
     artifactTabs.querySelector(`[data-artifact="${tabToShow.id}"]`).classList.add('active');
     if (tabToShow.id === 'specs') {
       renderSpecsTab(feature);
+    } else if (tabToShow.id === 'design') {
+      loadDesignArtifact(feature.path);
+    } else if (tabToShow.id === 'plan') {
+      loadPlanArtifact(feature.path);
     } else {
       loadArtifact(feature.path, tabToShow.id);
     }
@@ -532,7 +657,11 @@ function openFeatureDetail(feature, initialTab = null) {
   }
 }
 
-// Render specs tab with collapsible accordion sections
+// =============================================================================
+// Artifact Rendering
+// =============================================================================
+
+/** Render specs tab with collapsible accordion sections */
 function renderSpecsTab(feature) {
   const specs = feature.specs;
 
@@ -626,6 +755,266 @@ async function loadArtifact(featurePath, artifact, spec = null) {
   }
 }
 
+// Load and render design artifact with collapsible sections
+async function loadDesignArtifact(featurePath) {
+  artifactContent.innerHTML = '<p class="loading">Loading...</p>';
+
+  try {
+    const res = await fetch(`/api/artifact?path=${encodeURIComponent(featurePath)}&artifact=design`);
+    const data = await res.json();
+
+    if (data.error) {
+      artifactContent.innerHTML = `<p class="empty-state">${escapeHtml(data.error)}</p>`;
+      return;
+    }
+
+    // Split content by H2 headers
+    const sections = parseDesignSections(data.content);
+
+    if (sections.length === 0) {
+      // No sections found, render as regular markdown
+      artifactContent.innerHTML = `<div class="markdown-content">${renderMarkdown(data.content)}</div>`;
+      return;
+    }
+
+    // Render as accordion
+    const accordionHtml = `
+      <div class="design-accordion">
+        ${sections.map((section, index) => `
+          <div class="design-section ${index === 0 ? 'expanded' : ''}" data-section="${index}">
+            <button class="design-section-header">
+              <svg class="design-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+              <span class="design-section-title">${escapeHtml(section.title)}</span>
+            </button>
+            <div class="design-section-content">
+              <div class="markdown-content">${renderMarkdown(section.content)}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    artifactContent.innerHTML = accordionHtml;
+
+    // Add click handlers for accordion headers
+    artifactContent.querySelectorAll('.design-section-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const section = header.closest('.design-section');
+        section.classList.toggle('expanded');
+      });
+    });
+  } catch (err) {
+    console.error('Failed to load design:', err);
+    artifactContent.innerHTML = '<p class="empty-state">Failed to load design</p>';
+  }
+}
+
+// Load and render plan artifact with collapsible task cards
+async function loadPlanArtifact(featurePath) {
+  artifactContent.innerHTML = '<p class="loading">Loading...</p>';
+
+  try {
+    const res = await fetch(`/api/artifact?path=${encodeURIComponent(featurePath)}&artifact=plan`);
+    const data = await res.json();
+
+    if (data.error) {
+      artifactContent.innerHTML = `<p class="empty-state">${escapeHtml(data.error)}</p>`;
+      return;
+    }
+
+    // Parse tasks from the content
+    const tasks = parsePlanTasks(data.content);
+
+    if (tasks.length === 0) {
+      artifactContent.innerHTML = `<div class="markdown-content">${renderMarkdown(data.content)}</div>`;
+      return;
+    }
+
+    // Render as task cards
+    const cardsHtml = `
+      <div class="plan-tasks">
+        ${tasks.map((task, index) => {
+          const regularSubtasks = task.subtasks.filter(s => !s.title.startsWith('Manual QA'));
+          const manualSubtasks = task.subtasks.filter(s => s.title.startsWith('Manual QA'));
+          const completedCount = task.subtasks.filter(s => s.completed).length;
+          const totalCount = task.subtasks.length;
+          const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+          const status = completedCount === 0 ? 'todo' : completedCount === totalCount ? 'done' : 'in-progress';
+
+          return `
+            <div class="plan-task-card ${index === 0 ? 'expanded' : ''}" data-task-index="${index}">
+              <button class="plan-task-header">
+                <svg class="plan-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+                <span class="plan-task-id">${escapeHtml(task.id)}.</span>
+                <span class="plan-task-title">${formatMarkdown(task.title)}</span>
+                <span class="plan-task-progress ${status}">${completedCount}/${totalCount}</span>
+              </button>
+              <div class="plan-task-content">
+                ${regularSubtasks.length > 0 ? `
+                  <div class="plan-subtasks">
+                    ${regularSubtasks.map(subtask => `
+                      <div class="plan-subtask-item">
+                        <span class="plan-subtask-checkbox ${subtask.completed ? 'completed' : 'pending'}">
+                          ${subtask.completed ? '✓' : '○'}
+                        </span>
+                        <span class="plan-subtask-title">${formatMarkdown(subtask.title)}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                ` : ''}
+                ${manualSubtasks.length > 0 ? `
+                  <div class="plan-manual-section">
+                    <div class="plan-manual-header">Manual Verification</div>
+                    <div class="plan-subtasks">
+                      ${manualSubtasks.map(subtask => `
+                        <div class="plan-subtask-item interactive"
+                             data-subtask-id="${escapeHtml(subtask.id)}"
+                             data-feature-path="${escapeHtml(featurePath)}">
+                          <span class="plan-subtask-checkbox ${subtask.completed ? 'completed' : 'pending'}">
+                            ${subtask.completed ? '✓' : '○'}
+                          </span>
+                          <span class="plan-subtask-title">${formatMarkdown(subtask.title)}</span>
+                        </div>
+                      `).join('')}
+                    </div>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    artifactContent.innerHTML = cardsHtml;
+
+    // Add click handlers for task headers
+    artifactContent.querySelectorAll('.plan-task-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const card = header.closest('.plan-task-card');
+        card.classList.toggle('expanded');
+      });
+    });
+
+    // Add click handlers for interactive Manual QA subtasks
+    artifactContent.querySelectorAll('.plan-subtask-item.interactive').forEach(item => {
+      item.addEventListener('click', async () => {
+        const subtaskId = item.dataset.subtaskId;
+        const featurePath = item.dataset.featurePath;
+        const checkbox = item.querySelector('.plan-subtask-checkbox');
+
+        // Optimistic UI update
+        const wasCompleted = checkbox.classList.contains('completed');
+        checkbox.classList.toggle('completed');
+        checkbox.classList.toggle('pending');
+        checkbox.textContent = wasCompleted ? '○' : '✓';
+
+        try {
+          const res = await fetch('/api/subtask/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ featurePath, subtaskId })
+          });
+
+          if (!res.ok) {
+            // Revert on error
+            checkbox.classList.toggle('completed');
+            checkbox.classList.toggle('pending');
+            checkbox.textContent = wasCompleted ? '✓' : '○';
+          }
+        } catch (err) {
+          // Revert on error
+          checkbox.classList.toggle('completed');
+          checkbox.classList.toggle('pending');
+          checkbox.textContent = wasCompleted ? '✓' : '○';
+          console.error('Failed to toggle subtask:', err);
+        }
+      });
+    });
+  } catch (err) {
+    console.error('Failed to load plan:', err);
+    artifactContent.innerHTML = '<p class="empty-state">Failed to load plan</p>';
+  }
+}
+
+// Parse tasks.md content into tasks with subtasks
+function parsePlanTasks(content) {
+  const tasks = [];
+  const lines = content.split('\n');
+  let currentTask = null;
+
+  for (const line of lines) {
+    // Match task header: "## 1. Title" or "# 1. Title"
+    const taskMatch = line.match(/^#+\s*(\d+)\.\s+(.+)/);
+    if (taskMatch) {
+      if (currentTask) {
+        tasks.push(currentTask);
+      }
+      currentTask = {
+        id: taskMatch[1],
+        title: taskMatch[2].trim(),
+        subtasks: []
+      };
+      continue;
+    }
+
+    // Match subtask: "- [x] 1.1 Title" or "- [ ] 1.1 Title"
+    const subtaskMatch = line.match(/^[-*]\s+\[([ xX])\]\s+(\d+\.\d+)\s+(.+)/);
+    if (subtaskMatch && currentTask) {
+      currentTask.subtasks.push({
+        id: subtaskMatch[2],
+        title: subtaskMatch[3].trim(),
+        completed: subtaskMatch[1].toLowerCase() === 'x'
+      });
+    }
+  }
+
+  if (currentTask) {
+    tasks.push(currentTask);
+  }
+
+  return tasks;
+}
+
+// Parse design.md content into sections by H2 headers
+function parseDesignSections(content) {
+  const sections = [];
+  const lines = content.split('\n');
+  let currentSection = null;
+  let currentContent = [];
+
+  for (const line of lines) {
+    const h2Match = line.match(/^##\s+(.+)/);
+    if (h2Match) {
+      // Save previous section
+      if (currentSection) {
+        sections.push({
+          title: currentSection,
+          content: currentContent.join('\n').trim()
+        });
+      }
+      currentSection = h2Match[1].trim();
+      currentContent = [];
+    } else if (currentSection) {
+      currentContent.push(line);
+    }
+  }
+
+  // Don't forget the last section
+  if (currentSection) {
+    sections.push({
+      title: currentSection,
+      content: currentContent.join('\n').trim()
+    });
+  }
+
+  return sections;
+}
+
 // Markdown renderer using marked.js
 function renderMarkdown(text) {
   if (typeof marked !== 'undefined') {
@@ -653,18 +1042,30 @@ function renderFeatureLane(feature) {
     return `
       <div class="feature-lane" data-feature='${featureData}'>
         <div class="lane-header">
-          <div class="lane-title-row">
-            <span class="lane-title">${escapeHtml(feature.name)}</span>
-            <button class="open-folder-btn" data-path="${escapeHtml(feature.path)}" title="Open in Finder">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-              </svg>
-            </button>
-            <div class="lane-badges">
-              <span class="badge-link ${feature.hasProposal ? 'active' : 'disabled'}" data-artifact="proposal">Proposal</span>
-              <span class="badge-link ${hasSpecs ? 'active' : 'disabled'}" data-artifact="specs">Spec</span>
-              <span class="badge-link ${feature.hasDesign ? 'active' : 'disabled'}" data-artifact="design">Design</span>
-              <span class="badge-link ${feature.hasPlan ? 'active' : 'disabled'}" data-artifact="plan">Plan</span>
+          <div class="lane-header-left">
+            <div class="lane-title-row">
+              <span class="lane-title">${escapeHtml(feature.name)}</span>
+              <div class="lane-badges">
+                <span class="badge-link ${feature.hasProposal ? 'active' : 'disabled'}" data-artifact="proposal">Proposal</span>
+                <span class="badge-link ${feature.hasDesign ? 'active' : 'disabled'}" data-artifact="design">Design</span>
+                <span class="badge-link ${hasSpecs ? 'active' : 'disabled'}" data-artifact="specs">Spec</span>
+                <span class="badge-link ${feature.hasPlan ? 'active' : 'disabled'}" data-artifact="plan">Plan</span>
+              </div>
+            </div>
+            <div class="lane-worktree">
+              <i data-lucide="folder-git-2" class="worktree-icon"></i>
+              <span class="worktree-name">${escapeHtml(feature.worktree)}</span>
+              <div class="worktree-actions">
+                <button class="action-btn" data-action="finder" data-path="${escapeHtml(feature.worktreePath)}" title="Open in Finder">
+                  <i data-lucide="folder-open"></i>
+                </button>
+                <button class="action-btn" data-action="vscode" data-path="${escapeHtml(feature.worktreePath)}" title="Open in VS Code">
+                  <i data-lucide="code"></i>
+                </button>
+                <button class="action-btn" data-action="terminal" data-path="${escapeHtml(feature.worktreePath)}" title="Open in Terminal">
+                  <i data-lucide="terminal"></i>
+                </button>
+              </div>
             </div>
           </div>
           <span class="lane-meta">
@@ -738,7 +1139,11 @@ function renderTaskCard(task, featureName, featurePath) {
   `;
 }
 
-// Setup SSE for real-time updates
+// =============================================================================
+// Real-time Updates (SSE)
+// =============================================================================
+
+/** Setup Server-Sent Events for real-time updates */
 function setupEventSource() {
   if (eventSource) {
     eventSource.close();
@@ -781,7 +1186,11 @@ function updateConnectionStatus(connected) {
   `;
 }
 
-// Setup event listeners
+// =============================================================================
+// Event Listeners
+// =============================================================================
+
+/** Setup all DOM event listeners */
 function setupEventListeners() {
   changePathBtn.addEventListener('click', openModal);
 
@@ -819,14 +1228,20 @@ function setupEventListeners() {
     currentRepo = repoSelect.value;
     if (currentRepo) {
       localStorage.setItem(STORAGE_KEYS.repo, currentRepo);
+      updateUrlParams({ repo: currentRepo, feature: null, tab: null });
     } else {
       localStorage.removeItem(STORAGE_KEYS.repo);
+      updateUrlParams({ repo: null, feature: null, tab: null });
     }
     loadFeatures(currentRepo);
   });
 }
 
-// Utility: escape HTML
+// =============================================================================
+// Utilities
+// =============================================================================
+
+/** Escape HTML special characters to prevent XSS */
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
