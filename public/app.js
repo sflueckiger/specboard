@@ -372,9 +372,9 @@ function openSubtasksSidebar(task) {
     <span class="sidebar-task-name">${task.id}. ${formatMarkdown(task.title)}</span>
   `;
 
-  // Split subtasks into regular and manual QA
-  const regularSubtasks = task.subtasks.filter(s => !s.title.startsWith('Manual QA'));
-  const manualSubtasks = task.subtasks.filter(s => s.title.startsWith('Manual QA'));
+  // Split subtasks into regular and manual verification
+  const regularSubtasks = task.subtasks.filter(s => !isManualSubtask(s.title));
+  const manualSubtasks = task.subtasks.filter(s => isManualSubtask(s.title));
 
   let html = '';
 
@@ -588,11 +588,48 @@ function openFeatureDetail(feature, initialTab = null) {
     updateUrlParams({ feature: null, tab: null });
   });
 
-  // Render header
+  // Render header with worktree toolbar
   featureDetailHeader.innerHTML = `
     <h2>${escapeHtml(feature.name)}</h2>
-    <span class="feature-detail-worktree">${escapeHtml(feature.worktree)}</span>
+    <div class="feature-detail-worktree">
+      <i data-lucide="folder-git-2" class="worktree-icon"></i>
+      <span class="worktree-name">${escapeHtml(feature.worktree)}</span>
+      <div class="worktree-actions">
+        <button class="action-btn" data-action="finder" data-path="${escapeHtml(feature.worktreePath)}" title="Open in Finder">
+          <i data-lucide="folder-open"></i>
+        </button>
+        <button class="action-btn" data-action="vscode" data-path="${escapeHtml(feature.worktreePath)}" title="Open in VS Code">
+          <i data-lucide="code"></i>
+        </button>
+        <button class="action-btn" data-action="terminal" data-path="${escapeHtml(feature.worktreePath)}" title="Open in Terminal">
+          <i data-lucide="terminal"></i>
+        </button>
+      </div>
+    </div>
   `;
+
+  // Add click handlers for action buttons
+  featureDetailHeader.querySelectorAll('.action-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      const path = btn.dataset.path;
+      try {
+        await fetch(`/api/open/${action}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path })
+        });
+      } catch (err) {
+        console.error(`Failed to open ${action}:`, err);
+      }
+    });
+  });
+
+  // Re-initialize Lucide icons
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
 
   // Render tabs
   const hasSpecs = feature.specs && feature.specs.length > 0;
@@ -836,8 +873,8 @@ async function loadPlanArtifact(featurePath) {
     const cardsHtml = `
       <div class="plan-tasks">
         ${tasks.map((task, index) => {
-          const regularSubtasks = task.subtasks.filter(s => !s.title.startsWith('Manual QA'));
-          const manualSubtasks = task.subtasks.filter(s => s.title.startsWith('Manual QA'));
+          const regularSubtasks = task.subtasks.filter(s => !isManualSubtask(s.title));
+          const manualSubtasks = task.subtasks.filter(s => isManualSubtask(s.title));
           const completedCount = task.subtasks.filter(s => s.completed).length;
           const totalCount = task.subtasks.length;
           const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
@@ -1246,6 +1283,20 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+/**
+ * Check if a subtask is a manual verification task
+ * Matches: "Manual QA" prefix, "(manual)" suffix, "— manual" anywhere
+ */
+function isManualSubtask(title) {
+  const lowerTitle = title.toLowerCase();
+  return (
+    title.startsWith('Manual QA') ||
+    lowerTitle.includes('(manual)') ||
+    lowerTitle.includes('— manual') ||
+    lowerTitle.includes('- manual)')
+  );
 }
 
 // Start the app

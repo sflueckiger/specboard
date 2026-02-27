@@ -897,8 +897,26 @@ code {
 }
 
 .feature-detail-worktree {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.875rem;
   color: var(--muted-foreground);
+}
+
+.feature-detail-worktree .worktree-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+}
+
+.feature-detail-worktree .worktree-name {
+  margin-right: 0.5rem;
+}
+
+.feature-detail-worktree .worktree-actions {
+  display: flex;
+  gap: 0.25rem;
 }
 
 /* Artifact Tabs */
