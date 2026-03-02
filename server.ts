@@ -17,7 +17,13 @@ import { homedir, platform } from "os";
 // Configuration
 // =============================================================================
 
-const PORT = 3456;
+const DEFAULT_PORT = 3456;
+
+export interface ServerOptions {
+  port?: number;
+  rootPath?: string;
+  open?: boolean;
+}
 
 // =============================================================================
 // Application State
@@ -26,6 +32,7 @@ const PORT = 3456;
 let rootPath = join(homedir(), "conductor", "workspaces");
 let watcher: FSWatcher | null = null;
 let clients: Set<ReadableStreamDefaultController> = new Set();
+let serverInstance: ReturnType<typeof Bun.serve> | null = null;
 
 // =============================================================================
 // Type Definitions
@@ -420,9 +427,10 @@ function broadcastUpdate() {
 // HTTP Server & API Routes
 // =============================================================================
 
-const server = Bun.serve({
-  port: PORT,
-  async fetch(req) {
+function createServer(port: number) {
+  return Bun.serve({
+    port,
+    async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
 
@@ -635,25 +643,48 @@ const server = Bun.serve({
     return new Response("Not Found", { status: 404 });
   },
 });
-
-// =============================================================================
-// Startup
-// =============================================================================
-
-const url = `http://localhost:${PORT}`;
-const shouldOpen = Bun.argv.includes("--open");
-
-console.log(`\nSpecboard running at: ${url}\n`);
-
-if (shouldOpen) {
-  const os = platform();
-  if (os === "darwin") {
-    Bun.spawn(["open", url]);
-  } else if (os === "win32") {
-    Bun.spawn(["cmd", "/c", "start", url]);
-  } else {
-    Bun.spawn(["xdg-open", url]);
-  }
 }
 
-startWatcher();
+// =============================================================================
+// Server Startup
+// =============================================================================
+
+/** Start the Specboard server with the given options */
+export async function startServer(options: ServerOptions = {}) {
+  const port = options.port ?? DEFAULT_PORT;
+  rootPath = options.rootPath ?? process.cwd();
+  const shouldOpen = options.open ?? false;
+
+  serverInstance = createServer(port);
+
+  const url = `http://localhost:${port}`;
+  console.log(`\nSpecboard running at: ${url}\n`);
+
+  if (shouldOpen) {
+    const os = platform();
+    if (os === "darwin") {
+      Bun.spawn(["open", url]);
+    } else if (os === "win32") {
+      Bun.spawn(["cmd", "/c", "start", url]);
+    } else {
+      Bun.spawn(["xdg-open", url]);
+    }
+  }
+
+  await startWatcher();
+
+  return serverInstance;
+}
+
+// =============================================================================
+// Direct Execution Support
+// =============================================================================
+
+if (import.meta.main) {
+  const shouldOpen = Bun.argv.includes("--open");
+  startServer({
+    port: DEFAULT_PORT,
+    rootPath: join(homedir(), "conductor", "workspaces"),
+    open: shouldOpen,
+  });
+}

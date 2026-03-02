@@ -1,0 +1,14 @@
+# Development
+openspec/
+assets/
+CLAUDE.md
+.gitignore
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

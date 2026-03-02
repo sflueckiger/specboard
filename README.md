@@ -23,27 +23,71 @@ A web-based dashboard for monitoring [OpenSpec](https://github.com/org/openspec)
 
 ## Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/specboard.git
-cd specboard
+### Run without installing (recommended)
 
-# No dependencies to install - Bun handles everything!
+```bash
+# Using bunx (requires Bun)
+bunx @sflueckiger/specboard
+
+# Using npx (requires Bun to be installed)
+npx @sflueckiger/specboard
 ```
 
-## Usage
-
-### Start the Server
+### Install globally
 
 ```bash
-# Production mode
-bun run start
+# Using Bun
+bun install -g @sflueckiger/specboard
+
+# Using npm
+npm install -g @sflueckiger/specboard
+
+# Then run from anywhere
+specboard
+```
+
+### From source (for development)
+
+```bash
+git clone https://github.com/sflueckiger/specboard.git
+cd specboard
 
 # Development mode (with hot reload)
 bun run dev
 ```
 
-The dashboard will be available at `http://localhost:3456`
+## CLI Usage
+
+```
+specboard [path] [options]
+
+Arguments:
+  path          Root path to watch (default: current directory)
+
+Options:
+  -p, --port    Port to run on (default: 3456)
+  -o, --open    Open browser after starting
+  -h, --help    Show help message
+  -v, --version Show version number
+```
+
+### Examples
+
+```bash
+# Watch current directory on default port
+specboard
+
+# Watch a specific directory
+specboard ~/workspaces
+
+# Custom port and auto-open browser
+specboard --port 8080 --open
+
+# Combine all options
+specboard /path/to/workspaces -p 9000 -o
+```
+
+The dashboard will be available at `http://localhost:3456` (or your custom port)
 
 ### Configure Your Workspace Path
 

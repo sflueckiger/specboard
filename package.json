@@ -1,11 +1,39 @@
 {
-  "name": "specboard",
+  "name": "@sflueckiger/specboard",
   "version": "1.0.0",
   "description": "Dashboard to monitor OpenSpec progress across (Conductor) workspaces",
   "license": "MIT",
+  "type": "module",
+  "bin": {
+    "specboard": "./cli.ts"
+  },
+  "files": [
+    "cli.ts",
+    "server.ts",
+    "public"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sflueckiger/specboard.git"
+  },
+  "homepage": "https://github.com/sflueckiger/specboard#readme",
+  "bugs": {
+    "url": "https://github.com/sflueckiger/specboard/issues"
+  },
+  "keywords": [
+    "openspec",
+    "dashboard",
+    "kanban",
+    "bun",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "bun server.ts",
     "dev": "bun --watch server.ts",
-    "open": "bun server.ts --open"
+    "open": "bun server.ts --open",
+    "prepublishOnly": "echo 'Publishing @sflueckiger/specboard...' && bun cli.ts --version"
   }
 }
