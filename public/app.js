@@ -1553,7 +1553,7 @@ function escapeHtml(text) {
 /**
  * Check if a subtask is a manual verification task
  * Matches: "Manual QA" prefix, "(manual)" suffix, "— manual" anywhere,
- * "manual verification", "manual test", "manual check" prefixes
+ * "manual verification", "manual test", "manual check", "manually verify" prefixes
  */
 function isManualSubtask(title) {
   const lowerTitle = title.toLowerCase();
@@ -1562,6 +1562,7 @@ function isManualSubtask(title) {
     lowerTitle.startsWith('manual verification') ||
     lowerTitle.startsWith('manual test') ||
     lowerTitle.startsWith('manual check') ||
+    lowerTitle.startsWith('manually verify') ||
     lowerTitle.includes('(manual)') ||
     lowerTitle.includes('— manual') ||
     lowerTitle.includes('- manual)')
