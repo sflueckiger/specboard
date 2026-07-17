@@ -16,7 +16,7 @@ A web-based dashboard for monitoring [OpenSpec](https://github.com/org/openspec)
 
 ## Prerequisites
 
-- [Bun](https://bun.sh/) runtime (v1.0 or later)
+- [Node.js](https://nodejs.org/) 18 or later (or [Bun](https://bun.sh/) — both are supported)
 - [OpenSpec](https://github.com/Fission-AI/OpenSpec/) for spec-driven development
 - [Conductor](http://conductor.build) optional to manage workspaces, worktrees automatically
 - VS Code with `code` CLI (optional, for "Open in VS Code" feature)
@@ -26,11 +26,11 @@ A web-based dashboard for monitoring [OpenSpec](https://github.com/org/openspec)
 ### Run without installing (recommended)
 
 ```bash
-# Using bunx (requires Bun)
-bunx @sflueckiger/specboard
-
-# Using npx (requires Bun to be installed)
+# Using npx (Node.js 18+)
 npx @sflueckiger/specboard
+
+# Using bunx (Bun)
+bunx @sflueckiger/specboard
 ```
 
 ### Install globally
@@ -182,8 +182,8 @@ Settings are persisted in browser localStorage:
 
 ## Tech Stack
 
-- **Runtime**: [Bun](https://bun.sh/) - Fast JavaScript runtime with built-in bundler
-- **Backend**: TypeScript with Bun's native HTTP server
+- **Runtime**: [Node.js](https://nodejs.org/) 18+ or [Bun](https://bun.sh/) — the server uses only the standard library HTTP APIs
+- **Backend**: TypeScript, bundled to plain JavaScript for publishing
 - **Frontend**: Vanilla JavaScript (no build step required)
 - **Styling**: CSS with CSS custom properties
 - **Icons**: [Lucide](https://lucide.dev/)
@@ -192,17 +192,19 @@ Settings are persisted in browser localStorage:
 
 ## Development
 
-The project requires no build step. Edit files directly and use `bun run dev` for hot reloading.
+Development needs no build step — [Bun](https://bun.sh/) runs the TypeScript directly. Edit files and use `bun run dev` for hot reloading. A build step is only used when publishing to npm: `bun run build` bundles `cli.ts` (and its `server.ts` import) into `dist/cli.js` as plain Node-compatible JavaScript.
 
 ### Project Structure
 
 ```
 specboard/
-├── server.ts          # Bun HTTP server with API routes
+├── cli.ts             # CLI entry point (arg parsing, starts the server)
+├── server.ts          # HTTP server with API routes (Node/Bun)
 ├── public/
 │   ├── index.html     # Single-page app shell
 │   ├── app.js         # Frontend application logic
 │   └── styles.css     # All styles
+├── dist/              # Build output (generated; published to npm)
 ├── package.json       # Project metadata and scripts
 └── README.md          # This file
 ```

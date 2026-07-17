@@ -1,23 +1,42 @@
 /**
  * Specboard Server
  *
- * A Bun-based HTTP server that:
+ * A Node.js HTTP server (also runs under Bun) that:
  * - Serves the static frontend files
  * - Provides REST API for reading OpenSpec data
  * - Watches for file changes and broadcasts updates via SSE
  * - Supports toggling Manual QA subtask completion
  */
 
-import { watch, type FSWatcher } from "fs";
-import { readdir, readFile, stat, access } from "fs/promises";
-import { join } from "path";
+import { watch, existsSync, type FSWatcher } from "fs";
+import { readdir, readFile, stat, access, writeFile } from "fs/promises";
+import { createServer as createHttpServer, type IncomingMessage, type ServerResponse, type Server } from "http";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { homedir, platform } from "os";
+import { spawn } from "child_process";
 
 // =============================================================================
 // Configuration
 // =============================================================================
 
 const DEFAULT_PORT = 3456;
+
+/**
+ * Resolve the directory containing the frontend assets. Works both in
+ * development (server.ts sits beside public/) and when published (dist/server.js
+ * sits beside a package-root public/ → ../public).
+ */
+function resolvePublicDir(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [join(here, "public"), join(here, "..", "public")];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
+}
+
+const PUBLIC_DIR = resolvePublicDir();
 
 export interface ServerOptions {
   port?: number;
@@ -31,8 +50,8 @@ export interface ServerOptions {
 
 let rootPath = join(homedir(), "conductor", "workspaces");
 let watcher: FSWatcher | null = null;
-let clients: Set<ReadableStreamDefaultController> = new Set();
-let serverInstance: ReturnType<typeof Bun.serve> | null = null;
+let clients: Set<ServerResponse> = new Set();
+let serverInstance: Server | null = null;
 let currentMode: "workspace" | "single" = "workspace";
 
 // =============================================================================
@@ -241,7 +260,7 @@ async function toggleSubtask(
       return { success: false, error: "Subtask not found" };
     }
 
-    await Bun.write(tasksPath, updatedLines.join("\n"));
+    await writeFile(tasksPath, updatedLines.join("\n"));
     return { success: true, completed: newCompleted };
   } catch (err) {
     return { success: false, error: `File error: ${err}` };
@@ -577,7 +596,7 @@ function broadcastUpdate() {
   const data = `data: ${JSON.stringify({ type: "update" })}\n\n`;
   for (const client of clients) {
     try {
-      client.enqueue(new TextEncoder().encode(data));
+      client.write(data);
     } catch {
       clients.delete(client);
     }
@@ -588,10 +607,132 @@ function broadcastUpdate() {
 // HTTP Server & API Routes
 // =============================================================================
 
-function createServer(port: number) {
-  return Bun.serve({
-    port,
-    async fetch(req) {
+/** Launch an external application detached from the server process. */
+function spawnDetached(cmd: string[]) {
+  const child = spawn(cmd[0], cmd.slice(1), { detached: true, stdio: "ignore" });
+  child.unref();
+}
+
+/** Map a file extension to a Content-Type for static file responses. */
+function contentType(filePath: string): string {
+  if (filePath.endsWith(".html")) return "text/html; charset=utf-8";
+  if (filePath.endsWith(".js")) return "text/javascript; charset=utf-8";
+  if (filePath.endsWith(".css")) return "text/css; charset=utf-8";
+  if (filePath.endsWith(".json")) return "application/json; charset=utf-8";
+  if (filePath.endsWith(".svg")) return "image/svg+xml";
+  if (filePath.endsWith(".png")) return "image/png";
+  if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) return "image/jpeg";
+  if (filePath.endsWith(".ico")) return "image/x-icon";
+  return "application/octet-stream";
+}
+
+/** Convert a Node IncomingMessage into a Web-standard Request (body buffered). */
+async function toWebRequest(nodeReq: IncomingMessage): Promise<Request> {
+  const url = new URL(nodeReq.url ?? "/", "http://localhost");
+  const method = nodeReq.method ?? "GET";
+
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(nodeReq.headers)) {
+    if (Array.isArray(value)) {
+      for (const v of value) headers.append(key, v);
+    } else if (value != null) {
+      headers.set(key, value);
+    }
+  }
+
+  let body: Buffer | undefined;
+  if (method !== "GET" && method !== "HEAD") {
+    const chunks: Buffer[] = [];
+    for await (const chunk of nodeReq) chunks.push(chunk as Buffer);
+    if (chunks.length > 0) body = Buffer.concat(chunks);
+  }
+
+  return new Request(url, { method, headers, body });
+}
+
+/** Write a Web-standard Response back onto a Node ServerResponse. */
+async function writeNodeResponse(nodeRes: ServerResponse, response: Response) {
+  const headers: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+  nodeRes.writeHead(response.status, headers);
+  if (response.body) {
+    nodeRes.end(Buffer.from(await response.arrayBuffer()));
+  } else {
+    nodeRes.end();
+  }
+}
+
+/** Register an SSE client and stream real-time update events to it. */
+function handleSSE(nodeReq: IncomingMessage, nodeRes: ServerResponse) {
+  nodeRes.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  clients.add(nodeRes);
+  nodeRes.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+
+  nodeReq.on("close", () => {
+    clients.delete(nodeRes);
+  });
+}
+
+/** Create the HTTP server (not yet listening). */
+function createServer(): Server {
+  return createHttpServer(async (nodeReq, nodeRes) => {
+    const url = new URL(nodeReq.url ?? "/", "http://localhost");
+
+    // SSE is streamed directly to the Node response (see design D2)
+    if (url.pathname === "/api/events") {
+      handleSSE(nodeReq, nodeRes);
+      return;
+    }
+
+    try {
+      const request = await toWebRequest(nodeReq);
+      const response = await handleRequest(request);
+      await writeNodeResponse(nodeRes, response);
+    } catch {
+      if (!nodeRes.headersSent) nodeRes.writeHead(500);
+      nodeRes.end("Internal Server Error");
+    }
+  });
+}
+
+/**
+ * Bind the server to a port, falling forward to the next port when one is
+ * already in use. Resolves with the port actually bound.
+ */
+function listenWithRetry(server: Server, port: number, maxAttempts = 10): Promise<number> {
+  return new Promise((resolve, reject) => {
+    let attempts = 0;
+    const tryListen = (candidate: number) => {
+      const onError = (err: NodeJS.ErrnoException) => {
+        server.removeListener("listening", onListening);
+        if (err.code === "EADDRINUSE" && attempts < maxAttempts) {
+          attempts++;
+          console.log(`Port ${candidate} is in use, trying ${candidate + 1}...`);
+          tryListen(candidate + 1);
+        } else {
+          reject(err);
+        }
+      };
+      const onListening = () => {
+        server.removeListener("error", onError);
+        resolve(candidate);
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(candidate);
+    };
+    tryListen(port);
+  });
+}
+
+/** Route a Web-standard request and produce a Web-standard response. */
+async function handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
@@ -653,7 +794,7 @@ function createServer(port: number) {
           } else {
             cmd = ["xdg-open", body.path];
           }
-          Bun.spawn(cmd);
+          spawnDetached(cmd);
           return Response.json({ success: true });
         } catch {
           return Response.json({ error: "Failed to open directory" }, { status: 500 });
@@ -667,7 +808,7 @@ function createServer(port: number) {
       const body = await req.json();
       if (body.path && typeof body.path === "string") {
         try {
-          Bun.spawn(["code", body.path]);
+          spawnDetached(["code", body.path]);
           return Response.json({ success: true });
         } catch {
           return Response.json({ error: "Failed to open VS Code" }, { status: 500 });
@@ -683,11 +824,11 @@ function createServer(port: number) {
         try {
           const os = platform();
           if (os === "darwin") {
-            Bun.spawn(["open", "-a", "Terminal", body.path]);
+            spawnDetached(["open", "-a", "Terminal", body.path]);
           } else if (os === "win32") {
-            Bun.spawn(["cmd", "/c", "start", "cmd", "/k", `cd /d "${body.path}"`]);
+            spawnDetached(["cmd", "/c", "start", "cmd", "/k", `cd /d "${body.path}"`]);
           } else {
-            Bun.spawn(["gnome-terminal", `--working-directory=${body.path}`]);
+            spawnDetached(["gnome-terminal", `--working-directory=${body.path}`]);
           }
           return Response.json({ success: true });
         } catch {
@@ -766,45 +907,23 @@ function createServer(port: number) {
       }
     }
 
-    // GET /api/events - SSE endpoint for real-time updates
-    if (path === "/api/events") {
-      const stream = new ReadableStream({
-        start(controller) {
-          clients.add(controller);
-          controller.enqueue(
-            new TextEncoder().encode(
-              `data: ${JSON.stringify({ type: "connected" })}\n\n`
-            )
-          );
-        },
-        cancel() {
-          // Client disconnected
-        },
-      });
-
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
-    }
+    // NOTE: GET /api/events (SSE) is handled directly in createServer() before
+    // routing, so it can stream to the raw Node response (see design D2).
 
     // Static files
-    let filePath = path === "/" ? "/index.html" : path;
-    const staticPath = join(import.meta.dir, "public", filePath);
+    const filePath = path === "/" ? "/index.html" : path;
+    const staticPath = join(PUBLIC_DIR, filePath);
 
     try {
-      const file = Bun.file(staticPath);
-      if (await file.exists()) {
-        return new Response(file);
+      if (await fileExists(staticPath)) {
+        const data = await readFile(staticPath);
+        return new Response(data, {
+          headers: { "Content-Type": contentType(staticPath) },
+        });
       }
     } catch {}
 
     return new Response("Not Found", { status: 404 });
-  },
-});
 }
 
 // =============================================================================
@@ -821,36 +940,24 @@ export async function startServer(options: ServerOptions = {}) {
   currentMode = await detectMode(rootPath);
   console.log(`Mode: ${currentMode}`);
 
-  serverInstance = createServer(port);
+  serverInstance = createServer();
+  const boundPort = await listenWithRetry(serverInstance, port);
 
-  const url = `http://localhost:${port}`;
+  const url = `http://localhost:${boundPort}`;
   console.log(`\nSpecboard running at: ${url}\n`);
 
   if (shouldOpen) {
     const os = platform();
     if (os === "darwin") {
-      Bun.spawn(["open", url]);
+      spawnDetached(["open", url]);
     } else if (os === "win32") {
-      Bun.spawn(["cmd", "/c", "start", url]);
+      spawnDetached(["cmd", "/c", "start", url]);
     } else {
-      Bun.spawn(["xdg-open", url]);
+      spawnDetached(["xdg-open", url]);
     }
   }
 
   await startWatcher();
 
   return serverInstance;
-}
-
-// =============================================================================
-// Direct Execution Support
-// =============================================================================
-
-if (import.meta.main) {
-  const shouldOpen = Bun.argv.includes("--open");
-  startServer({
-    port: DEFAULT_PORT,
-    rootPath: join(homedir(), "conductor", "workspaces"),
-    open: shouldOpen,
-  });
 }
