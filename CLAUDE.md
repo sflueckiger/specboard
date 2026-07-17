@@ -14,16 +14,22 @@ bun run start
 
 # Start with hot reload for development
 bun run dev
+
+# Build the published artifact (dist/cli.js) — plain Node-compatible JS
+bun run build
 ```
 
 ## Architecture
 
-**Runtime**: Bun (TypeScript backend, no compilation step)
+**Runtime**: Node.js 18+ or Bun. The backend uses only standard-library HTTP/fs/child_process APIs, so it runs on either runtime. In development Bun runs the TypeScript directly (no build step); for publishing, `bun run build` bundles `cli.ts` (and its `server.ts` import) into `dist/cli.js`, which is what `npx @sflueckiger/specboard` executes.
+
+**Entry point** (`cli.ts`):
+- Parses CLI args (path, `--port`, `--open`, `--help`, `--version`) and calls `startServer()`
 
 **Server** (`server.ts`):
-- HTTP server serving static files from `public/`
+- Node `http` server with a Web `Request`/`Response` adapter; serves static files from `public/`
 - REST API endpoints for repositories, worktrees, and directory browsing
-- SSE endpoint (`/api/events`) for real-time file change notifications
+- SSE endpoint (`/api/events`) for real-time file change notifications (streamed directly to the Node response)
 - Watches configured root path for `.md` file changes
 
 **Frontend** (`public/`):

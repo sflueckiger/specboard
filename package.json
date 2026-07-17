@@ -1,15 +1,14 @@
 {
   "name": "@sflueckiger/specboard",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Dashboard to monitor OpenSpec progress across (Conductor) workspaces",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "specboard": "./cli.ts"
+    "specboard": "./dist/cli.js"
   },
   "files": [
-    "cli.ts",
-    "server.ts",
+    "dist",
     "public"
   ],
   "repository": {
@@ -31,12 +30,10 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "start": "bun server.ts",
-    "dev": "bun --watch server.ts",
-    "open": "bun server.ts --open",
-    "prepublishOnly": "echo 'Publishing @sflueckiger/specboard...' && bun cli.ts --version"
-  },
-  "dependencies": {
-    "@sflueckiger/specboard": "^1.1.0"
+    "start": "bun cli.ts",
+    "dev": "bun --watch cli.ts",
+    "open": "bun cli.ts --open",
+    "build": "bun build ./cli.ts --target=node --format=esm --outfile=dist/cli.js",
+    "prepublishOnly": "bun run build"
   }
 }

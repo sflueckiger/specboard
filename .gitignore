@@ -1,1 +1,11 @@
+# Build output
+dist/
+
+# Dependencies
+node_modules/
+
+# Tooling
 .claude/
+
+# OS
+.DS_Store

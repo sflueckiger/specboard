@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Specboard CLI
  *
@@ -6,15 +6,32 @@
  */
 
 import { startServer } from "./server";
-import { resolve } from "path";
+import { resolve, dirname, join } from "path";
+import { fileURLToPath } from "url";
+import { readFileSync, existsSync } from "fs";
 
-const pkg = await Bun.file(new URL("./package.json", import.meta.url)).json();
+/**
+ * Read package.json for metadata. Resolves both in development (cli.ts beside
+ * package.json) and when published (dist/cli.js → ../package.json).
+ */
+function readPackageJson(): { version: string } {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [join(here, "package.json"), join(here, "..", "package.json")];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return JSON.parse(readFileSync(candidate, "utf-8"));
+    }
+  }
+  return { version: "0.0.0" };
+}
+
+const pkg = readPackageJson();
 
 // =============================================================================
 // Argument Parsing
 // =============================================================================
 
-const args = Bun.argv.slice(2);
+const args = process.argv.slice(2);
 
 function hasFlag(...flags: string[]): boolean {
   return args.some((arg) => flags.includes(arg) || flags.some((f) => arg.startsWith(`${f}=`)));

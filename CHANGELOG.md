@@ -2,6 +2,31 @@
 
 All notable changes to Specboard are documented in this file.
 
+## [1.2.0] - 2026-07-17
+
+### Added
+
+- **Automatic port fall-forward**: if the requested port (default 3456) is already in use, Specboard now tries the next port instead of crashing, and reports the port it actually bound.
+
+### Changed
+
+- **Runs on Node.js** — the backend was ported off Bun-only APIs (`Bun.serve`, `Bun.file`, `Bun.write`, `Bun.spawn`, `Bun.argv`, `import.meta.dir`/`import.meta.main`) to the Node.js standard library (`node:http` with a Web `Request`/`Response` adapter, `fs/promises`, `child_process`). Specboard now runs on Node.js 18+ **and** Bun.
+- The published package now ships compiled JavaScript (`dist/cli.js`, built via `bun run build`) instead of raw TypeScript, with a `node` shebang.
+
+### Fixed
+
+- **`npx @sflueckiger/specboard` no longer requires Bun** ([#1](https://github.com/sflueckiger/specboard/issues/1)) — running via `npx` on a machine without Bun failed with `'"bun"' is not recognized` on Windows. It now launches under plain Node.js.
+
+### Removed
+
+- Dropped the accidental self-dependency on `@sflueckiger/specboard` from `dependencies`.
+
+## [1.1.2] - 2026-03-23
+
+### Changed
+
+- Updated the README screenshot.
+
 ## [1.1.1] - 2026-03-02
 
 ### Added
